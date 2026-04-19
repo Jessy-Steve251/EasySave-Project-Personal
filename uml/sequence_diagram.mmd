@@ -1,0 +1,154 @@
+%% EasySave v1.0 — Sequence Diagram (matches actual code flow)
+%% Traced through: Program.Main → ConsoleView.Run → BackupViewModel.ExecuteJobs
+%% → ExecuteSingleJob → Factory → Strategy.Execute → Observer events
+%% Paste into https://mermaid.live to render
+
+sequenceDiagram
+    autonumber
+    title EasySave v1.0 — Backup execution sequence (actual code flow)
+
+    actor User
+    participant P as Program.Main
+    participant CM as ConfigManager<br/><<Singleton>>
+    participant VM as BackupViewModel
+    participant LOG as Logger<br/>(EasyLog.dll)
+    participant SM as StateManager
+    participant CV as ConsoleView
+    participant LM as LanguageManager<br/><<Singleton>>
+    participant F as BackupStrategyFactory<br/><<Factory>>
+    participant S as IBackupStrategy
+    participant SP as LocalStorageProvider<br/>(IStorageProvider)
+
+    rect rgba(50, 80, 50, 0.3)
+        Note over P,SP: Phase 1 — Initialization (Program.Main)
+        P->>CM: GetConfigDirectory()
+        CM-->>P: appDataDir
+        P->>CM: Instance.LoadJobs()
+        CM-->>P: List of BackupJob
+
+        P->>F: new BackupStrategyFactory()
+        P->>SP: new LocalStorageProvider()
+        P->>VM: new BackupViewModel(jobs, factory, storage)
+
+        P->>LOG: new Logger(appDataDir)
+        P->>SM: new StateManager(stateFilePath)
+        P->>SM: InitializeStates(job names)
+        SM->>SM: WriteStateToJson()
+        Note over SM: state.json created with all jobs = Inactive
+
+        Note over P,CV: Observer subscriptions wired in Program.Main
+        P->>VM: OnFileCopied += logger.LogAction
+        P->>VM: OnStateChanged += stateManager.UpdateState
+        P->>VM: OnJobCompleted += stateManager.UpdateState
+
+        P->>CV: new ConsoleView(viewModel)
+        Note over CV: Constructor subscribes to:<br/>OnJobStarted, OnFileCopied,<br/>OnStateChanged, OnJobCompleted
+
+        P->>CV: Run(args)
+    end
+
+    rect rgba(50, 50, 80, 0.3)
+        Note over CV,LM: Phase 2 — Language selection + argument parsing
+        CV->>LM: GetString("select_language")
+        LM-->>CV: prompt text
+        CV->>User: Display language menu
+        User->>CV: selects "1" (English)
+
+        alt CLI mode (args.Length > 0)
+            CV->>CV: ParseArguments(["1-3"])
+            Note right of CV: Split on '-'<br/>Result: [1, 2, 3]
+        else Interactive mode
+            CV->>CV: RunInteractiveMenu()
+            CV->>User: Display main menu
+            User->>CV: selects "4" (Execute job)
+        end
+
+        CV->>VM: ExecuteJobs([1, 2, 3])
+    end
+
+    rect rgba(80, 50, 50, 0.3)
+        Note over VM,SP: Phase 3 — Execute each job
+        loop For each jobId in [1, 2, 3]
+            VM->>VM: job = _jobs.FirstOrDefault(j => j.Id == id)
+            VM->>VM: job.Validate()
+
+            Note over VM: Raise OnJobStarted event
+            VM-)CV: OnJobStarted(JobState: Active)
+            CV->>User: "[STARTED] TestBackup"
+
+            VM-)SM: OnStateChanged(JobState: Active)
+            SM->>SM: UpdateState() + WriteStateToJson()
+            Note over SM: state.json → Active
+
+            rect rgba(80, 50, 80, 0.3)
+                Note over VM,F: Factory Pattern
+                VM->>F: CreateStrategy(job.Type)
+                alt BackupType.Full
+                    F-->>VM: new FullBackupStrategy()
+                else BackupType.Differential
+                    F-->>VM: new DifferentialBackupStrategy()
+                end
+            end
+
+            rect rgba(50, 80, 80, 0.3)
+                Note over S,SP: Strategy + Bridge execution
+                VM->>S: Execute(job, storage, onFileCopied, onProgress)
+
+                S->>SP: GetFiles(job.SourceDir)
+                SP-->>S: List of all files (recursive)
+
+                opt DifferentialBackupStrategy only
+                    S->>S: GetModifiedFiles()
+                    loop For each source file
+                        S->>SP: FileExists(targetFile)
+                        S->>SP: GetLastModifiedTime(source)
+                        S->>SP: GetLastModifiedTime(target)
+                        Note right of S: Keep only new or modified files
+                    end
+                end
+
+                loop For each file to copy
+                    S->>SP: GetFileSize(sourceFile)
+                    SP-->>S: fileSize
+
+                    Note over S: Report progress via callback
+                    S->>VM: onProgress(JobState)
+                    VM-)SM: OnStateChanged(JobState)
+                    SM->>SM: UpdateState + WriteStateToJson
+                    VM-)CV: OnStateChanged(JobState)
+                    CV->>User: Progress: 33.3% (1/3 files)
+
+                    Note over S: Stopwatch.StartNew()
+                    S->>SP: CopyFile(sourceFile, targetFile)
+                    Note over S: stopwatch.Stop()
+
+                    alt Copy succeeded
+                        S->>VM: onFileCopied(LogEntry: transferTimeMs > 0)
+                    else Copy failed
+                        S->>VM: onFileCopied(LogEntry: transferTimeMs < 0)
+                    end
+
+                    VM-)LOG: OnFileCopied(LogEntry)
+                    LOG->>LOG: WriteJsonEntry to {date}.json
+                    Note over LOG: Appends to daily JSON array
+
+                    VM-)CV: OnFileCopied(LogEntry)
+                    CV->>User: "Copied: file.txt (1024 bytes, 5ms)"
+                end
+            end
+
+            Note over VM: Build completion state preserving file counts
+            VM-)SM: OnJobCompleted(JobState: Completed, progression=100)
+            SM->>SM: UpdateState + WriteStateToJson
+            Note over SM: state.json → Completed
+
+            VM-)CV: OnJobCompleted(JobState)
+            CV->>User: "[COMPLETED] TestBackup - 100.0%"
+
+            VM-)SM: OnStateChanged(completeState)
+            SM->>SM: UpdateState + WriteStateToJson
+        end
+    end
+
+    CV->>LM: GetString("all_completed")
+    CV->>User: "All backup jobs completed."

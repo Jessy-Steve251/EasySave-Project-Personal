@@ -1,0 +1,222 @@
+%% EasySave v1.0 — Class Diagram (matches actual codebase exactly)
+%% Paste into https://mermaid.live to render
+
+classDiagram
+    direction TB
+
+    %% ==================== ENUMERATIONS ====================
+    class BackupType {
+        <<enumeration>>
+        Full
+        Differential
+    }
+
+    class JobStatus {
+        <<enumeration>>
+        Inactive
+        Active
+        Completed
+        Error
+    }
+
+    %% ==================== EasySave.Logger (EasyLog.dll) ====================
+    class LogEntry {
+        +DateTime Timestamp
+        +string BackupName
+        +string SourceFilePath
+        +string TargetFilePath
+        +long FileSize
+        +long TransferTimeMs
+    }
+
+    class JobState {
+        +string JobName
+        +DateTime LastActionTimestamp
+        +JobStatus Status
+        +int TotalEligibleFiles
+        +long TotalFileSize
+        +int FilesRemaining
+        +long SizeRemaining
+        +double Progression
+        +string CurrentSourceFile
+        +string CurrentTargetFile
+    }
+
+    class Logger {
+        -string _logDirectory
+        -JsonSerializerOptions JsonOptions$
+        +Logger(logDirectory string)
+        +LogAction(entry LogEntry) void
+        -GetDailyLogPath() string
+        -WriteJsonEntry(entry LogEntry, path string) void
+    }
+
+    class StateManager {
+        -string _stateFilePath
+        -List~JobState~ _states
+        -JsonSerializerOptions JsonOptions$
+        +StateManager(stateFilePath string)
+        +InitializeStates(jobNames IEnumerable~string~) void
+        +UpdateState(state JobState) void
+        +WriteStateToJson() void
+    }
+
+    %% ==================== EasySave.Core (.dll) ====================
+    class BackupJob {
+        +int Id
+        +string Name
+        +string SourceDir
+        +string TargetDir
+        +BackupType Type
+        +Validate() bool
+    }
+
+    class IBackupStrategy {
+        <<interface>>
+        +Execute(job BackupJob, storage IStorageProvider, onFileCopied Action~LogEntry~, onProgress Action~JobState~) void
+    }
+
+    class FullBackupStrategy {
+        +Execute(job BackupJob, storage IStorageProvider, onFileCopied Action~LogEntry~, onProgress Action~JobState~) void
+    }
+
+    class DifferentialBackupStrategy {
+        +Execute(job BackupJob, storage IStorageProvider, onFileCopied Action~LogEntry~, onProgress Action~JobState~) void
+        -GetModifiedFiles(sourceFiles List~string~, job BackupJob, storage IStorageProvider) List~string~
+    }
+
+    class IStorageProvider {
+        <<interface>>
+        +CopyFile(sourcePath string, targetPath string) void
+        +GetFiles(directoryPath string) List~string~
+        +GetDirectories(directoryPath string) List~string~
+        +GetLastModifiedTime(filePath string) DateTime
+        +GetFileSize(filePath string) long
+        +FileExists(filePath string) bool
+        +CreateDirectory(path string) void
+    }
+
+    class LocalStorageProvider {
+        +CopyFile(sourcePath string, targetPath string) void
+        +GetFiles(directoryPath string) List~string~
+        +GetDirectories(directoryPath string) List~string~
+        +GetLastModifiedTime(filePath string) DateTime
+        +GetFileSize(filePath string) long
+        +FileExists(filePath string) bool
+        +CreateDirectory(path string) void
+    }
+
+    class BackupStrategyFactory {
+        <<Factory>>
+        +CreateStrategy(type BackupType) IBackupStrategy
+    }
+
+    class ConfigManager {
+        <<Singleton>>
+        -ConfigManager _instance$
+        -object Lock$
+        -string _configPath
+        -JsonSerializerOptions JsonOptions$
+        -ConfigManager()
+        +Instance ConfigManager$
+        +GetConfigDirectory() string$
+        +LoadJobs() List~BackupJob~
+        +SaveJobs(jobs List~BackupJob~) void
+    }
+
+    class BackupViewModel {
+        -List~BackupJob~ _jobs
+        -BackupStrategyFactory _factory
+        -IStorageProvider _storage
+        -int MaxJobs = 5
+        +event OnFileCopied EventHandler~LogEntry~
+        +event OnStateChanged EventHandler~JobState~
+        +event OnJobStarted EventHandler~JobState~
+        +event OnJobCompleted EventHandler~JobState~
+        +BackupViewModel(jobs, factory, storage)
+        +Jobs IReadOnlyList~BackupJob~
+        +CreateJob(name string, sourceDir string, targetDir string, type BackupType) bool
+        +DeleteJob(id int) bool
+        +ExecuteJobs(jobIds List~int~) void
+        +ExecuteAllJobs() void
+        -ExecuteSingleJob(job BackupJob) void
+        +SaveJobs() void
+    }
+
+    %% ==================== EasySave.ConsoleApp (.exe) ====================
+    class Program {
+        +Main(args string[])$ void
+    }
+
+    class ConsoleView {
+        -BackupViewModel _viewModel
+        -LanguageManager _lang
+        +ConsoleView(viewModel BackupViewModel)
+        +Run(args string[]) void
+        -SelectLanguage() void
+        -RunInteractiveMenu() void
+        -DisplayMenu() void
+        -CreateJobInteractive() void
+        -DeleteJobInteractive() void
+        -ListJobs() void
+        -ExecuteJobInteractive() void
+        -ExecuteAllJobs() void
+        +ParseArguments(args string[])$ List~int~
+    }
+
+    class LanguageManager {
+        <<Singleton>>
+        -LanguageManager _instance$
+        -Dictionary~string string~ _translations
+        -string _currentCulture
+        -LanguageManager()
+        +Instance LanguageManager$
+        +CurrentCulture string
+        +SetLanguage(culture string) void
+        +GetString(key string) string
+        -LoadTranslations(culture string) void
+        -GetEnglishTranslations() Dictionary
+        -GetFrenchTranslations() Dictionary
+    }
+
+    %% ==================== RELATIONSHIPS ====================
+
+    %% Program creates ConsoleView
+    Program --> ConsoleView : creates
+
+    %% ConsoleView dependencies
+    ConsoleView --> BackupViewModel : _viewModel
+    ConsoleView --> LanguageManager : _lang
+
+    %% BackupViewModel composition and dependencies
+    BackupViewModel "1" *-- "0..5" BackupJob : _jobs
+    BackupViewModel --> BackupStrategyFactory : _factory
+    BackupViewModel --> IStorageProvider : _storage
+    BackupViewModel --> ConfigManager : SaveJobs via
+
+    %% BackupJob uses enum
+    BackupJob --> BackupType : Type
+
+    %% Factory creates strategies
+    BackupStrategyFactory ..> IBackupStrategy : creates
+    BackupStrategyFactory ..> BackupType : reads
+
+    %% Strategy implements
+    FullBackupStrategy ..|> IBackupStrategy
+    DifferentialBackupStrategy ..|> IBackupStrategy
+
+    %% Strategy uses Bridge
+    IBackupStrategy --> IStorageProvider : storage parameter
+
+    %% Bridge implements
+    LocalStorageProvider ..|> IStorageProvider
+
+    %% Observer: Program.cs wires these subscriptions
+    Logger ..> BackupViewModel : subscribes OnFileCopied
+    StateManager ..> BackupViewModel : subscribes OnStateChanged + OnJobCompleted
+    ConsoleView ..> BackupViewModel : subscribes OnJobStarted + OnFileCopied + OnStateChanged + OnJobCompleted
+
+    %% Logger uses data models
+    Logger --> LogEntry : writes
+    StateManager --> JobState : manages
+    JobState --> JobStatus : Status

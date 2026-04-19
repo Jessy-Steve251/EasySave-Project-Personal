@@ -1,0 +1,76 @@
+%% EasySave v1.0 — Component Diagram (matches actual .csproj references)
+%% Paste into https://mermaid.live to render
+
+flowchart TB
+    subgraph ConsoleApp["EasySave.ConsoleApp (.exe)"]
+        direction TB
+        Prog["Program.cs<br/>Entry point + dependency wiring"]
+        CView["ConsoleView.cs<br/>Menu, CLI parsing, progress display"]
+        LangMgr["LanguageManager.cs<br/><<Singleton>> EN/FR translations"]
+    end
+
+    subgraph Core["EasySave.Core (.dll)"]
+        direction TB
+        BVM["BackupViewModel.cs<br/>Orchestrator + Observer events"]
+        BJob["BackupJob.cs<br/>Data model + BackupType enum"]
+        Config["ConfigManager.cs<br/><<Singleton>> JSON persistence"]
+
+        subgraph Patterns["Design Patterns"]
+            Factory["BackupStrategyFactory.cs<br/><<Factory>> creates strategies"]
+            IStrat["IBackupStrategy.cs<br/><<interface>> Strategy pattern"]
+            FullStrat["FullBackupStrategy.cs<br/>Copies all files"]
+            DiffStrat["DifferentialBackupStrategy.cs<br/>Copies changed files only"]
+            IStor["IStorageProvider.cs<br/><<interface>> Bridge pattern"]
+            LocalStor["LocalStorageProvider.cs<br/>System.IO operations"]
+        end
+    end
+
+    subgraph LoggerDLL["EasyLog.dll (EasySave.Logger)"]
+        direction TB
+        Log["Logger.cs<br/>Daily JSON log writer"]
+        State["StateManager.cs<br/>Real-time state.json writer"]
+        LEntry["LogEntry.cs<br/>Log data model"]
+        JState["JobState.cs + JobStatus enum<br/>State data model"]
+    end
+
+    subgraph Files["File System (%AppData%/EasySave/)"]
+        ConfigFile["config.json"]
+        LogFile["{yyyy-MM-dd}.json<br/>Daily log"]
+        StateFile["state.json<br/>Real-time status"]
+    end
+
+    %% Project references (from .csproj files)
+    ConsoleApp -->|"references"| Core
+    ConsoleApp -->|"references"| LoggerDLL
+    Core -->|"references"| LoggerDLL
+
+    %% Internal wiring
+    Prog --> CView
+    Prog --> BVM
+    Prog --> Log
+    Prog --> State
+    CView --> LangMgr
+    CView -.->|"subscribes to events"| BVM
+    BVM --> BJob
+    BVM --> Factory
+    BVM --> Config
+    Factory --> IStrat
+    FullStrat -.->|"implements"| IStrat
+    DiffStrat -.->|"implements"| IStrat
+    IStrat --> IStor
+    LocalStor -.->|"implements"| IStor
+
+    %% Observer subscriptions (wired in Program.Main)
+    Log -.->|"OnFileCopied"| BVM
+    State -.->|"OnStateChanged<br/>OnJobCompleted"| BVM
+
+    %% File system writes
+    Config --> ConfigFile
+    Log --> LogFile
+    State --> StateFile
+
+    style ConsoleApp fill:#e6f1fb,color:#000
+    style Core fill:#e1f5ee,color:#000
+    style LoggerDLL fill:#faeeda,color:#000
+    style Files fill:#f1efe8,color:#000
+    style Patterns fill:#eeedfe,color:#000

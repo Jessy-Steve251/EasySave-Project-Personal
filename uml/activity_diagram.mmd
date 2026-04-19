@@ -1,0 +1,133 @@
+%% EasySave v1.0 — Activity Diagram (matches actual code flow)
+%% Paste into https://mermaid.live to render
+
+flowchart TD
+    Start([Program.Main starts])
+
+    Init["Initialize:<br/>appDataDir = ConfigManager.GetConfigDirectory()<br/>jobs = ConfigManager.Instance.LoadJobs()<br/>factory = new BackupStrategyFactory()<br/>storage = new LocalStorageProvider()<br/>viewModel = new BackupViewModel(jobs, factory, storage)<br/>logger = new Logger(appDataDir)<br/>stateManager = new StateManager(statePath)"]
+
+    Subscribe["Wire Observer subscriptions:<br/>viewModel.OnFileCopied += logger.LogAction<br/>viewModel.OnStateChanged += stateManager.UpdateState<br/>viewModel.OnJobCompleted += stateManager.UpdateState<br/>ConsoleView subscribes in constructor"]
+
+    InitState["stateManager.InitializeStates(job names)<br/>Writes state.json with all jobs = Inactive"]
+
+    SelectLang{"User selects<br/>language?"}
+    SetEN["LanguageManager stays EN"]
+    SetFR["LanguageManager.SetLanguage('fr')"]
+
+    HasArgs{"args.Length > 0?"}
+
+    ParseCLI["ConsoleView.ParseArguments(args)"]
+    ParseRange{"Contains '-'?"}
+    ParseSemicolon{"Contains ';'?"}
+    BuildRange["Split on '-'<br/>Build range: start to end<br/>e.g. 1-3 → [1,2,3]"]
+    BuildSpecific["Split on ';'<br/>Parse each ID<br/>e.g. 1;3 → [1,3]"]
+    BuildSingle["Parse each arg as int"]
+
+    Menu["Display interactive menu"]
+    MenuChoice{"User choice?"}
+    CreateJob["CreateJobInteractive()<br/>Prompt: name, source, target, type<br/>viewModel.CreateJob()"]
+    DeleteJob["DeleteJobInteractive()<br/>viewModel.DeleteJob(id)"]
+    ListJobs["ListJobs()<br/>Display all configured jobs"]
+    ExecOne["ExecuteJobInteractive()<br/>Prompt for job ID"]
+    ExecAll["viewModel.ExecuteAllJobs()"]
+    ExitApp(["Exit"])
+
+    ExecJobs["viewModel.ExecuteJobs(jobIds)"]
+
+    JobLoop{"More jobs<br/>to execute?"}
+    GetJob["job = _jobs.FirstOrDefault(j => j.Id == id)"]
+    Validate{"job.Validate()?"}
+    RaiseError["Raise OnJobCompleted<br/>with Status = Error"]
+
+    RaiseStart["Raise OnJobStarted(Active)<br/>Raise OnStateChanged(Active)<br/>→ StateManager writes state.json<br/>→ ConsoleView prints STARTED"]
+
+    FactoryCreate["Factory: _factory.CreateStrategy(job.Type)"]
+    TypeCheck{"job.Type?"}
+    CreateFull["new FullBackupStrategy()"]
+    CreateDiff["new DifferentialBackupStrategy()"]
+
+    StrategyExec["strategy.Execute(job, _storage, onFileCopied, onProgress)"]
+
+    GetFiles["storage.GetFiles(job.SourceDir)<br/>Get all files recursively"]
+
+    DiffFilter{"Is Differential?"}
+    FilterModified["GetModifiedFiles():<br/>For each file check<br/>storage.FileExists(target)?<br/>sourceModified > targetModified?<br/>Keep only new/changed files"]
+    UseAll["Use all files"]
+
+    CalcTotals["Calculate totalFiles, totalSize"]
+
+    FileLoop{"More files<br/>to copy?"}
+    ReportProgress["onProgress(JobState)<br/>→ Raise OnStateChanged<br/>→ StateManager writes state.json<br/>→ ConsoleView shows progress"]
+
+    CopyFile["Stopwatch.StartNew()<br/>storage.CopyFile(source, target)<br/>stopwatch.Stop()"]
+
+    CopyResult{"Copy succeeded?"}
+    LogSuccess["onFileCopied(LogEntry: +transferTimeMs)<br/>→ Raise OnFileCopied<br/>→ Logger.LogAction writes to daily JSON<br/>→ ConsoleView prints Copied"]
+    LogError["onFileCopied(LogEntry: -transferTimeMs)<br/>→ Raise OnFileCopied<br/>→ Logger.LogAction writes to daily JSON<br/>→ ConsoleView prints ERROR"]
+
+    Increment["filesCopied++<br/>sizeCopied += fileSize"]
+
+    RaiseComplete["Build completeState preserving file counts<br/>Raise OnJobCompleted(Completed, 100%)<br/>Raise OnStateChanged(completeState)<br/>→ StateManager writes state.json<br/>→ ConsoleView prints COMPLETED"]
+
+    AllDone["ConsoleView prints<br/>'All backup jobs completed.'"]
+
+    %% Flow
+    Start --> Init --> Subscribe --> InitState --> SelectLang
+    SelectLang -->|"1 (English)"| SetEN --> HasArgs
+    SelectLang -->|"2 (French)"| SetFR --> HasArgs
+
+    HasArgs -->|Yes| ParseCLI
+    HasArgs -->|No| Menu
+
+    ParseCLI --> ParseRange
+    ParseRange -->|Yes| BuildRange --> ExecJobs
+    ParseRange -->|No| ParseSemicolon
+    ParseSemicolon -->|Yes| BuildSpecific --> ExecJobs
+    ParseSemicolon -->|No| BuildSingle --> ExecJobs
+
+    Menu --> MenuChoice
+    MenuChoice -->|1| CreateJob --> Menu
+    MenuChoice -->|2| DeleteJob --> Menu
+    MenuChoice -->|3| ListJobs --> Menu
+    MenuChoice -->|4| ExecOne --> ExecJobs
+    MenuChoice -->|5| ExecAll
+    MenuChoice -->|6| ExitApp
+    ExecAll --> ExecJobs
+
+    ExecJobs --> JobLoop
+    JobLoop -->|Yes| GetJob --> Validate
+    JobLoop -->|No| AllDone
+
+    Validate -->|No| RaiseError --> JobLoop
+    Validate -->|Yes| RaiseStart --> FactoryCreate --> TypeCheck
+
+    TypeCheck -->|Full| CreateFull --> StrategyExec
+    TypeCheck -->|Differential| CreateDiff --> StrategyExec
+
+    StrategyExec --> GetFiles --> DiffFilter
+    DiffFilter -->|Yes| FilterModified --> CalcTotals
+    DiffFilter -->|No| UseAll --> CalcTotals
+
+    CalcTotals --> FileLoop
+    FileLoop -->|Yes| ReportProgress --> CopyFile --> CopyResult
+    FileLoop -->|No| RaiseComplete --> JobLoop
+
+    CopyResult -->|Yes| LogSuccess --> Increment --> FileLoop
+    CopyResult -->|No| LogError --> Increment --> FileLoop
+
+    AllDone --> Menu
+
+    %% Styling
+    style Start fill:#4ade80,color:#000
+    style ExitApp fill:#f87171,color:#000
+    style FactoryCreate fill:#c084fc,color:#000
+    style CreateFull fill:#c084fc,color:#000
+    style CreateDiff fill:#c084fc,color:#000
+    style RaiseStart fill:#fbbf24,color:#000
+    style RaiseComplete fill:#fbbf24,color:#000
+    style RaiseError fill:#f87171,color:#fff
+    style LogSuccess fill:#4ade80,color:#000
+    style LogError fill:#f87171,color:#fff
+    style ReportProgress fill:#fbbf24,color:#000
+    style FilterModified fill:#60a5fa,color:#000
+    style CopyFile fill:#f97316,color:#000

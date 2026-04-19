@@ -1,0 +1,74 @@
+%% EasySave v1.0 — Use Case Diagram (matches actual ConsoleView menu)
+%% Paste into https://mermaid.live to render
+
+flowchart LR
+    User((User))
+
+    subgraph EasySave["EasySave v1.0"]
+        direction TB
+
+        subgraph Menu["Interactive Menu (ConsoleView)"]
+            UC1["1. Create backup job<br/>(name, source, target, type)"]
+            UC2["2. Delete backup job<br/>(by ID)"]
+            UC3["3. List all backup jobs"]
+            UC4["4. Execute single backup job<br/>(by ID)"]
+            UC5["5. Execute all backup jobs<br/>(sequential)"]
+            UC6["6. Exit"]
+        end
+
+        subgraph CLI["CLI Mode (ParseArguments)"]
+            UC7["EasySave.exe 1-3<br/>(range execution)"]
+            UC8["EasySave.exe 1;3<br/>(specific execution)"]
+            UC9["EasySave.exe 2<br/>(single execution)"]
+        end
+
+        subgraph System["System Operations"]
+            UC10["Select language<br/>(EN / FR)"]
+            UC11["Copy files +<br/>subdirectories"]
+            UC12["Write daily log<br/>(date.json)"]
+            UC13["Update real-time<br/>status (state.json)"]
+            UC14["Save/Load config<br/>(config.json)"]
+        end
+    end
+
+    FS[(File System)]
+
+    User --> UC1
+    User --> UC2
+    User --> UC3
+    User --> UC4
+    User --> UC5
+    User --> UC6
+    User --> UC7
+    User --> UC8
+    User --> UC9
+    User --> UC10
+
+    UC1 -.->|"include"| UC14
+    UC2 -.->|"include"| UC14
+    UC4 -.->|"include"| UC11
+    UC5 -.->|"include"| UC11
+    UC7 -.->|"include"| UC11
+    UC8 -.->|"include"| UC11
+    UC9 -.->|"include"| UC11
+    UC11 -.->|"include"| UC12
+    UC11 -.->|"include"| UC13
+
+    UC11 --> FS
+    UC12 --> FS
+    UC13 --> FS
+    UC14 --> FS
+
+    style UC1 fill:#4ade80,color:#000
+    style UC2 fill:#4ade80,color:#000
+    style UC3 fill:#4ade80,color:#000
+    style UC4 fill:#60a5fa,color:#000
+    style UC5 fill:#60a5fa,color:#000
+    style UC7 fill:#c084fc,color:#000
+    style UC8 fill:#c084fc,color:#000
+    style UC9 fill:#c084fc,color:#000
+    style UC10 fill:#fbbf24,color:#000
+    style UC11 fill:#f97316,color:#fff
+    style UC12 fill:#fbbf24,color:#000
+    style UC13 fill:#fbbf24,color:#000
+    style UC14 fill:#fbbf24,color:#000
